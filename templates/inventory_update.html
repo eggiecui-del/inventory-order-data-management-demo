@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Update Stock{% endblock %}
+
+{% block content %}
+<div class="page-title-row">
+    <div>
+        <h1>Update Stock</h1>
+        <p class="text-muted mb-0">Update current inventory and save a stock movement log.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('product_list') }}">Back to Products</a>
+</div>
+
+<form method="post" class="form-panel compact-form">
+    <div class="row g-3">
+        <div class="col-12">
+            <label class="form-label">Product</label>
+            <select class="form-select" name="product_id" required>
+                <option value="">Choose a product</option>
+                {% for product in products %}
+                    <option value="{{ product.id }}" {% if selected_product_id == product.id %}selected{% endif %}>
+                        {{ product.product_code }} - {{ product.product_name }} (current {{ product.current_quantity }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-md-4">
+            <label class="form-label">Change Type</label>
+            <select class="form-select" name="change_type" required>
+                <option value="stock_in">stock_in</option>
+                <option value="stock_out">stock_out</option>
+                <option value="adjustment">adjustment</option>
+            </select>
+        </div>
+        <div class="col-12 col-md-4">
+            <label class="form-label">Quantity</label>
+            <input class="form-control" type="number" min="0" name="quantity" required>
+        </div>
+        <div class="col-12 col-md-4">
+            <label class="form-label">Reason</label>
+            <input class="form-control" name="reason" placeholder="supplier delivery">
+        </div>
+        <div class="col-12">
+            <label class="form-label">Note</label>
+            <textarea class="form-control" name="note" rows="3"></textarea>
+        </div>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save Stock Change</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('product_list') }}">Cancel</a>
+    </div>
+</form>
+{% endblock %}

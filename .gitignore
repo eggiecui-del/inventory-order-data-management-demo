@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+.env
+venv/
+.venv/
+
+# Local databases and private/runtime data
+*.db
+*.sqlite
+*.sqlite3
+instance/
+data/private/
+data/raw/
+
+# Generated source/export files should not be committed.
+# Keep generated demo data reproducible through scripts instead.
+*.xlsx
+*.xls
+*.csv
+exports/
+
+*.log
+logs/
+reports/*
+!reports/.gitkeep
+.vscode/
+.idea/
+.agents/
+.codex/

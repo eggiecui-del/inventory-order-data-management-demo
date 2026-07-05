@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Customers{% endblock %}
+
+{% block content %}
+<div class="page-title-row">
+    <div>
+        <h1>Customers</h1>
+        <p class="text-muted mb-0">Basic customer lookup for generated demo order data.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('orders') }}">View Orders</a>
+</div>
+
+<section class="toolbar-panel">
+    <form class="row g-2 align-items-end" method="get">
+        <div class="col-12 col-md-5">
+            <label class="form-label">Customer ID / Name / City</label>
+            <input class="form-control" name="keyword" value="{{ keyword }}">
+        </div>
+        <div class="col-12 col-md-4 d-flex gap-2">
+            <button class="btn btn-dark" type="submit">Search</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('customers') }}">Reset</a>
+        </div>
+    </form>
+</section>
+
+<section class="table-shell">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Customer ID</th>
+                    <th>Customer Name</th>
+                    <th>Contact</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>City</th>
+                    <th class="text-end">Orders</th>
+                    <th class="text-end">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for customer in customers %}
+                    <tr>
+                        <td class="text-nowrap">{{ customer.customer_id }}</td>
+                        <td>{{ customer.customer_name }}</td>
+                        <td>{{ customer.contact_person }}</td>
+                        <td>{{ customer.phone }}</td>
+                        <td>{{ customer.email }}</td>
+                        <td>{{ customer.city }}</td>
+                        <td class="text-end">{{ customer.order_count }}</td>
+                        <td class="text-end">{{ "%.2f"|format(customer.order_amount) }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="8" class="text-center text-muted py-5">No matching customers found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

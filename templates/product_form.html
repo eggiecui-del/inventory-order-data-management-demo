@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Add Product{% endblock %}
+
+{% block content %}
+<div class="page-title-row">
+    <div>
+        <h1>Add Product</h1>
+        <p class="text-muted mb-0">Adding a product also creates a basic inventory row.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('product_list') }}">Back to Products</a>
+</div>
+
+<form method="post" class="form-panel">
+    <div class="row g-3">
+        <div class="col-12 col-md-3">
+            <label class="form-label">Product Code *</label>
+            <input class="form-control" name="product_code" value="{{ form.get('product_code', '') }}" required>
+        </div>
+        <div class="col-12 col-md-5">
+            <label class="form-label">Product Name *</label>
+            <input class="form-control" name="product_name" value="{{ form.get('product_name', '') }}" required>
+        </div>
+        <div class="col-12 col-md-2">
+            <label class="form-label">Category</label>
+            <input class="form-control" name="category" value="{{ form.get('category', '') }}">
+        </div>
+        <div class="col-12 col-md-2">
+            <label class="form-label">Unit *</label>
+            <input class="form-control" name="unit" value="{{ form.get('unit', '') }}" required>
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Brand</label>
+            <input class="form-control" name="brand" value="{{ form.get('brand', '') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Model</label>
+            <input class="form-control" name="model" value="{{ form.get('model', '') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Cost Price</label>
+            <input class="form-control" type="number" min="0" step="0.01" name="cost_price" value="{{ form.get('cost_price', '0') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Sale Price</label>
+            <input class="form-control" type="number" min="0" step="0.01" name="sale_price" value="{{ form.get('sale_price', '0') }}">
+        </div>
+        <div class="col-12 col-md-4">
+            <label class="form-label">Supplier</label>
+            <input class="form-control" name="supplier_name" value="{{ form.get('supplier_name', '') }}">
+        </div>
+        <div class="col-12 col-md-2">
+            <label class="form-label">Supplier City</label>
+            <input class="form-control" name="supplier_city" value="{{ form.get('supplier_city', '') }}">
+        </div>
+        <div class="col-12 col-md-6">
+            <label class="form-label">Usage Scene</label>
+            <input class="form-control" name="usage_scene" value="{{ form.get('usage_scene', '') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Initial Stock</label>
+            <input class="form-control" type="number" min="0" name="current_quantity" value="{{ form.get('current_quantity', '0') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Minimum Stock</label>
+            <input class="form-control" type="number" min="0" name="minimum_stock" value="{{ form.get('minimum_stock', '0') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Safety Stock</label>
+            <input class="form-control" type="number" min="0" name="safety_stock" value="{{ form.get('safety_stock', '0') }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Location</label>
+            <input class="form-control" name="location" value="{{ form.get('location', 'Main storage shelf') }}">
+        </div>
+        <div class="col-12">
+            <label class="form-label">Remark</label>
+            <textarea class="form-control" name="remark" rows="3">{{ form.get('remark', '') }}</textarea>
+        </div>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Save Product</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('product_list') }}">Cancel</a>
+    </div>
+</form>
+{% endblock %}

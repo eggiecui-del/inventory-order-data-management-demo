@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Message{% endblock %}
+
+{% block content %}
+<section class="empty-state">
+    <h1>{{ message }}</h1>
+    <a class="btn btn-primary" href="{{ url_for('product_list') }}">Back to Products</a>
+</section>
+{% endblock %}

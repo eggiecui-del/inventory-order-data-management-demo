@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Products{% endblock %}
+
+{% block content %}
+<div class="page-title-row">
+    <div>
+        <h1>Products</h1>
+        <p class="text-muted mb-0">Product master data, current stock, and storage location.</p>
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('product_new') }}">Add Product</a>
+</div>
+
+<section class="toolbar-panel">
+    <form class="row g-2 align-items-end" method="get">
+        <div class="col-12 col-md-2">
+            <label class="form-label">Product Code</label>
+            <input class="form-control" name="product_code" value="{{ filters.product_code }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Product Name</label>
+            <input class="form-control" name="product_name" value="{{ filters.product_name }}">
+        </div>
+        <div class="col-12 col-md-2">
+            <label class="form-label">Category</label>
+            <select class="form-select" name="category">
+                <option value="">All</option>
+                {% for category in categories %}
+                    <option value="{{ category }}" {% if filters.category == category %}selected{% endif %}>{{ category }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-md-2">
+            <label class="form-label">Brand</label>
+            <input class="form-control" name="brand" value="{{ filters.brand }}">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Supplier</label>
+            <input class="form-control" name="supplier_name" value="{{ filters.supplier_name }}">
+        </div>
+        <div class="col-12 col-md-2">
+            <label class="form-label">Stock Status</label>
+            <select class="form-select" name="inventory_status">
+                <option value="">All</option>
+                {% for status in ["normal", "low_stock", "out_of_stock"] %}
+                    <option value="{{ status }}" {% if filters.inventory_status == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-md-2">
+            <div class="form-check low-stock-check">
+                <input class="form-check-input" type="checkbox" value="1" name="low_stock" id="low_stock" {% if filters.low_stock %}checked{% endif %}>
+                <label class="form-check-label" for="low_stock">Below safety stock</label>
+            </div>
+        </div>
+        <div class="col-12 col-md-3 d-flex gap-2">
+            <button class="btn btn-dark" type="submit">Search</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('product_list') }}">Reset</a>
+            <a class="btn btn-outline-primary ms-auto" href="{{ url_for('export_inventory') }}">Export</a>
+        </div>
+    </form>
+</section>
+
+<section class="table-shell">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Brand</th>
+                    <th>Model</th>
+                    <th>Unit</th>
+                    <th class="text-end">Current</th>
+                    <th class="text-end">Minimum</th>
+                    <th class="text-end">Safety</th>
+                    <th>Status</th>
+                    <th>Location</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for product in products %}
+                    <tr class="{% if product.current_quantity < product.safety_stock %}table-warning{% endif %}">
+                        <td class="text-nowrap">{{ product.product_code }}</td>
+                        <td>{{ product.product_name }}</td>
+                        <td>{{ product.category }}</td>
+                        <td>{{ product.brand }}</td>
+                        <td>{{ product.model }}</td>
+                        <td>{{ product.unit }}</td>
+                        <td class="text-end fw-semibold">{{ product.current_quantity }}</td>
+                        <td class="text-end">{{ product.minimum_stock }}</td>
+                        <td class="text-end">{{ product.safety_stock }}</td>
+                        <td>
+                            <span class="status-badge {% if product.inventory_status == 'out_of_stock' %}status-out{% elif product.inventory_status == 'low_stock' %}status-low{% else %}status-ok{% endif %}">
+                                {{ product.inventory_status }}
+                            </span>
+                        </td>
+                        <td>{{ product.location }}</td>
+                        <td class="text-end text-nowrap">
+                            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('product_detail', product_id=product.id) }}">Details</a>
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('inventory_update', product_id=product.id) }}">Update</a>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="12" class="text-center text-muted py-5">No matching products found.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
