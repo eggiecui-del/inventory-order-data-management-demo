@@ -27,5 +27,3 @@ reports/*
 !reports/.gitkeep
 .vscode/
 .idea/
-.agents/
-.codex/
