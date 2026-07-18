@@ -5,7 +5,7 @@ import pytest
 
 from app import create_app
 from database import clear_demo_data, get_connection, init_db
-from scripts.validate_sources import validate_source
+from scripts.validate_sources import check_order_totals, validate_source
 
 
 def test_source_validation_reports_duplicate_and_bad_amounts():
@@ -35,6 +35,42 @@ def test_source_validation_reports_duplicate_and_bad_amounts():
     assert "duplicate value" in messages
     assert "cannot be negative" in messages
     assert "not a valid number" in messages
+
+
+def test_order_total_cross_check_flags_mismatch():
+    orders = pd.DataFrame(
+        [
+            {
+                "order_id": "ORD-1",
+                "customer_id": "C1",
+                "order_date": "2026-01-01",
+                "order_status": "completed",
+                "total_amount": "100.00",
+            },
+            {
+                "order_id": "ORD-2",
+                "customer_id": "C1",
+                "order_date": "2026-01-02",
+                "order_status": "completed",
+                "total_amount": "50.00",
+            },
+        ]
+    )
+    items = pd.DataFrame(
+        [
+            {"order_id": "ORD-1", "product_code": "SKU-1", "quantity": 2, "unit_price": 45.0, "subtotal": 90.0},
+            {"order_id": "ORD-2", "product_code": "SKU-1", "quantity": 1, "unit_price": 50.0, "subtotal": 50.0},
+        ]
+    )
+
+    result = validate_source("orders", orders)
+    check_order_totals(orders, items, result)
+    result.finish()
+
+    mismatches = [error for error in result.errors if error["column"] == "total_amount"]
+    assert len(mismatches) == 1
+    assert mismatches[0]["row_number"] == 2
+    assert result.invalid_rows == 1
 
 
 @pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")

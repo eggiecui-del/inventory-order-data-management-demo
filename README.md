@@ -185,7 +185,8 @@ py scripts/validate_sources.py --products data\products.xlsx --customers data\cu
 ```
 
 The script checks required columns, duplicate codes, numeric fields, date fields,
-simple foreign-key references, and order item subtotal rules.
+simple foreign-key references, order item subtotal rules, and order totals
+against summed item subtotals.
 
 Validation output is written under `reports/`:
 

@@ -159,6 +159,28 @@ def check_order_item_subtotal(df: pd.DataFrame, result: ValidationResult):
         result.add_error(row_no(index_value), "subtotal", "subtotal does not match quantity * unit_price")
 
 
+def check_order_totals(orders_df: pd.DataFrame, items_df: pd.DataFrame, result: ValidationResult):
+    if "order_id" not in orders_df.columns or "total_amount" not in orders_df.columns:
+        return
+    if not {"order_id", "subtotal"}.issubset(items_df.columns):
+        return
+    item_totals = (
+        pd.to_numeric(items_df["subtotal"], errors="coerce")
+        .groupby(items_df["order_id"].astype(str).str.strip())
+        .sum()
+    )
+    order_totals = pd.to_numeric(orders_df["total_amount"], errors="coerce")
+    expected = orders_df["order_id"].astype(str).str.strip().map(item_totals)
+    diff = (order_totals - expected).abs()
+    invalid = expected.notna() & order_totals.notna() & (diff > 0.05)
+    for index_value in orders_df[invalid].index:
+        result.add_error(
+            row_no(index_value),
+            "total_amount",
+            "total_amount does not match sum of order item subtotals",
+        )
+
+
 def validate_source(name: str, df: pd.DataFrame) -> ValidationResult:
     result = ValidationResult(name=name, total_rows=len(df))
     required = REQUIRED_COLUMNS[name]
@@ -274,6 +296,8 @@ def main():
     if "orders" in frames:
         order_result = next(result for result in results if result.name == "orders")
         check_foreign_keys(frames["orders"], "customer_id", frames.get("customers"), "customer_id", order_result)
+        if "order_items" in frames:
+            check_order_totals(frames["orders"], frames["order_items"], order_result)
         order_result.finish()
 
     if "order_items" in frames:

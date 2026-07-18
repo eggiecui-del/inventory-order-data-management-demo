@@ -69,6 +69,7 @@ Orders:
 - Total amount cannot be negative
 - Order date must be a valid date
 - Customer id should exist in the customer source file if both files are provided
+- Total amount should match the sum of the order's item subtotals if the order items file is also provided
 
 Order items:
 
