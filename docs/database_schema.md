@@ -40,6 +40,13 @@ Main fields:
 - `created_at`
 - `updated_at`
 
+`supplier_name` and `supplier_city` are plain text and are the fields the
+Flask product form actually reads and writes. `supplier_id` references the
+`suppliers` table and is there to show a normalized design, but the app does
+not set or query it yet, so the two are not kept in sync automatically. A
+follow-up would be to move the product form onto `supplier_id` (picking an
+existing supplier row) and drop the free-text columns.
+
 Rules:
 
 - `product_code` is unique.
