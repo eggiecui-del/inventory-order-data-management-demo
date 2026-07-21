@@ -38,6 +38,7 @@ py scripts/check_database.py
 - Product API list check
 - Inventory stock-out API check
 - pandas source validation for duplicates, invalid numbers, and negative amounts
+- Order total vs. sum of order item subtotals cross-check
 
 ## ETL Validation Script
 
@@ -54,6 +55,7 @@ It covers:
 - Positive quantity checks
 - Simple foreign-key checks across source files
 - Order item subtotal check
+- Order total vs. sum of order item subtotals check
 
 ## Current Demo Data
 
