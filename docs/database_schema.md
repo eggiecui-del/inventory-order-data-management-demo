@@ -41,11 +41,14 @@ Main fields:
 - `updated_at`
 
 `supplier_name` and `supplier_city` are plain text and are the fields the
-Flask product form actually reads and writes. `supplier_id` references the
-`suppliers` table and is there to show a normalized design, but the app does
-not set or query it yet, so the two are not kept in sync automatically. A
-follow-up would be to move the product form onto `supplier_id` (picking an
-existing supplier row) and drop the free-text columns.
+Flask product form reads and writes. `supplier_id` references the `suppliers`
+table and is populated during Excel import: `import_excel.py` upserts a row
+in `suppliers` and stores its id alongside the free-text columns. The Flask
+app itself never sets or reads `supplier_id` when creating or editing
+products through the web form, so it stays `NULL` for anything added or
+edited that way, while imported products keep it populated. A follow-up
+would be to move the product form onto `supplier_id` (picking an existing
+supplier row) and drop the free-text columns.
 
 Rules:
 
