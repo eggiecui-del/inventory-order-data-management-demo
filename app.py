@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import os
 
+import psycopg
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from database import DATABASE_URL, get_connection, init_db
@@ -378,7 +379,7 @@ def create_app(test_config=None):
                     (product_id,),
                 ).fetchone()
                 inventory = conn.execute(
-                    "SELECT * FROM inventory WHERE product_id = ?",
+                    "SELECT * FROM inventory WHERE product_id = ? FOR UPDATE",
                     (product_id,),
                 ).fetchone()
 
@@ -406,7 +407,7 @@ def create_app(test_config=None):
                         (product_id, "Main storage shelf", timestamp, "Created during inventory update"),
                     )
                     inventory = conn.execute(
-                        "SELECT * FROM inventory WHERE product_id = ?",
+                        "SELECT * FROM inventory WHERE product_id = ? FOR UPDATE",
                         (product_id,),
                     ).fetchone()
 
@@ -833,7 +834,7 @@ def create_app(test_config=None):
                 return json_error("product not found", 404)
 
             inventory = conn.execute(
-                "SELECT * FROM inventory WHERE product_id = ?",
+                "SELECT * FROM inventory WHERE product_id = ? FOR UPDATE",
                 (product_id,),
             ).fetchone()
             if not inventory:
@@ -847,7 +848,7 @@ def create_app(test_config=None):
                     (product_id, "Main storage shelf", timestamp, "created by API inventory update"),
                 )
                 inventory = conn.execute(
-                    "SELECT * FROM inventory WHERE product_id = ?",
+                    "SELECT * FROM inventory WHERE product_id = ? FOR UPDATE",
                     (product_id,),
                 ).fetchone()
 
@@ -868,14 +869,28 @@ def create_app(test_config=None):
                 after_quantity = quantity
                 quantity_change = after_quantity - before_quantity
 
-            conn.execute(
-                """
-                UPDATE inventory
-                SET current_quantity = ?, last_updated_at = ?
-                WHERE product_id = ?
-                """,
-                (after_quantity, timestamp, product_id),
-            )
+            try:
+                conn.execute(
+                    """
+                    UPDATE inventory
+                    SET current_quantity = ?, last_updated_at = ?
+                    WHERE product_id = ?
+                    """,
+                    (after_quantity, timestamp, product_id),
+                )
+            except psycopg.errors.CheckViolation:
+                # Backstop: the FOR UPDATE lock above should make this
+                # unreachable in normal use, but if some other code path
+                # ever skips the application-level check, the database
+                # still refuses a negative quantity. Report it the same
+                # way as the application-level conflict instead of a
+                # generic 500.
+                conn.rollback()
+                return json_error(
+                    "inventory update would result in a negative quantity",
+                    409,
+                    field="quantity",
+                )
             conn.execute(
                 """
                 INSERT INTO inventory_logs (

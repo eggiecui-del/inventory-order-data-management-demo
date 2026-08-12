@@ -1,7 +1,10 @@
 import os
+import threading
 
 import pandas as pd
+import psycopg
 import pytest
+from psycopg.rows import dict_row
 
 from app import create_app
 from database import clear_demo_data, get_connection, init_db
@@ -191,3 +194,74 @@ def test_api_error_contract():
     assert unknown_route.status_code == 404
     assert unknown_route.content_type.startswith("application/json")
     assert unknown_route.get_json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_concurrent_inventory_read_serializes_via_row_lock():
+    """Two transactions read the same inventory row with SELECT ... FOR UPDATE,
+    the same query app.py now uses before it writes. The second one must block
+    until the first commits, and must then see the first transaction's write -
+    never the stale value it would have seen without the lock. This is the
+    exact mechanism that prevents a lost update when two stock-out requests
+    for the same product arrive at close to the same time.
+    """
+    database_url = os.environ["TEST_DATABASE_URL"]
+    init_db(database_url)
+    clear_demo_data(database_url)
+
+    with get_connection(database_url) as conn:
+        cursor = conn.execute(
+            "INSERT INTO products (product_code, product_name, unit) VALUES (?, ?, ?) RETURNING id",
+            ("SKU-LOCK-001", "Lock Test Product", "pcs"),
+        )
+        product_id = cursor.fetchone()["id"]
+        conn.execute(
+            "INSERT INTO inventory (product_id, current_quantity, safety_stock) VALUES (?, ?, ?)",
+            (product_id, 10, 0),
+        )
+        conn.commit()
+
+    first_holds_lock = threading.Event()
+    let_first_commit = threading.Event()
+    second_thread_result = {}
+
+    def first_transaction():
+        conn = psycopg.connect(database_url, row_factory=dict_row)
+        conn.execute(
+            "SELECT current_quantity FROM inventory WHERE product_id = %s FOR UPDATE",
+            (product_id,),
+        ).fetchone()
+        first_holds_lock.set()
+        let_first_commit.wait(timeout=2)
+        conn.execute(
+            "UPDATE inventory SET current_quantity = %s WHERE product_id = %s",
+            (5, product_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def second_transaction():
+        first_holds_lock.wait(timeout=2)
+        conn = psycopg.connect(database_url, row_factory=dict_row)
+        # Blocks here until first_transaction commits and releases the lock.
+        row = conn.execute(
+            "SELECT current_quantity FROM inventory WHERE product_id = %s FOR UPDATE",
+            (product_id,),
+        ).fetchone()
+        second_thread_result["current_quantity"] = row["current_quantity"]
+        conn.rollback()
+        conn.close()
+
+    t1 = threading.Thread(target=first_transaction)
+    t2 = threading.Thread(target=second_transaction)
+    t1.start()
+    t2.start()
+    # Give the second thread time to actually reach the blocking SELECT
+    # before we let the first thread commit.
+    first_holds_lock.wait(timeout=2)
+    threading.Event().wait(0.2)
+    let_first_commit.set()
+    t1.join(timeout=2)
+    t2.join(timeout=2)
+
+    assert second_thread_result["current_quantity"] == 5
