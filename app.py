@@ -65,8 +65,24 @@ def row_to_dict(row):
     return data
 
 
-def json_error(message, status_code=400):
-    return jsonify({"error": message}), status_code
+ERROR_CODE_BY_STATUS = {
+    400: "validation_error",
+    404: "not_found",
+    409: "conflict",
+    500: "internal_error",
+}
+
+
+def json_error(message, status_code=400, field=None, code=None):
+    body = {
+        "error": {
+            "code": code or ERROR_CODE_BY_STATUS.get(status_code, "error"),
+            "message": message,
+        }
+    }
+    if field:
+        body["error"]["field"] = field
+    return jsonify(body), status_code
 
 
 def safe_page_args():
@@ -797,13 +813,15 @@ def create_app(test_config=None):
         note = as_text(payload.get("note"))
 
         if product_id <= 0:
-            return json_error("product_id is required")
+            return json_error("product_id is required", field="product_id")
         if change_type not in INVENTORY_CHANGE_TYPES:
-            return json_error("change_type must be stock_in, stock_out, or adjustment")
+            return json_error(
+                "change_type must be stock_in, stock_out, or adjustment", field="change_type"
+            )
         if quantity < 0:
-            return json_error("quantity cannot be negative")
+            return json_error("quantity cannot be negative", field="quantity")
         if change_type != "adjustment" and quantity <= 0:
-            return json_error("quantity must be greater than zero")
+            return json_error("quantity must be greater than zero", field="quantity")
 
         timestamp = now_text()
         with get_connection(db_path()) as conn:
@@ -841,7 +859,11 @@ def create_app(test_config=None):
                 quantity_change = quantity
                 after_quantity = before_quantity - quantity
                 if after_quantity < 0:
-                    return json_error("stock_out quantity is greater than current inventory")
+                    return json_error(
+                        "stock_out quantity is greater than current inventory",
+                        409,
+                        field="quantity",
+                    )
             else:
                 after_quantity = quantity
                 quantity_change = after_quantity - before_quantity
@@ -998,9 +1020,9 @@ def create_app(test_config=None):
         payload = request.get_json(silent=True) or {}
         status_value = as_text(payload.get("order_status"))
         if not status_value:
-            return json_error("order_status is required")
+            return json_error("order_status is required", field="order_status")
         if status_value not in ORDER_STATUSES:
-            return json_error("invalid order_status")
+            return json_error("invalid order_status", field="order_status")
 
         with get_connection(db_path()) as conn:
             order = conn.execute("SELECT order_id FROM orders WHERE order_id = ?", (order_id,)).fetchone()
@@ -1015,11 +1037,17 @@ def create_app(test_config=None):
 
     @app.errorhandler(404)
     def not_found(error):
+        if request.path.startswith("/api/"):
+            return json_error("resource not found", 404)
         return render_template("error.html", message="Page not found"), 404
 
     @app.errorhandler(500)
     def server_error(error):
-        return render_template("error.html", message="The app hit a server error. Please check the input or database state."), 500
+        if request.path.startswith("/api/"):
+            return json_error("internal server error", 500)
+        return render_template(
+            "error.html", message="The app hit a server error. Please check the input or database state."
+        ), 500
 
     return app
 

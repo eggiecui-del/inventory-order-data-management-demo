@@ -132,3 +132,62 @@ def test_product_api_and_inventory_update():
     )
     assert update.status_code == 200
     assert update.get_json()["quantity_after"] == 3
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_api_error_contract():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    init_db(database_url)
+    clear_demo_data(database_url)
+
+    app = create_app(
+        {
+            "TESTING": True,
+            "DATABASE_URL": database_url,
+            "SECRET_KEY": "pytest-key",
+        }
+    )
+    client = app.test_client()
+
+    # missing required field -> 400 validation_error with the offending field named
+    missing_field = client.post("/api/inventory/update", json={"change_type": "stock_in", "quantity": 1})
+    assert missing_field.status_code == 400
+    body = missing_field.get_json()
+    assert body["error"]["code"] == "validation_error"
+    assert body["error"]["field"] == "product_id"
+
+    # missing product -> 404 not_found, no field (it's a lookup miss, not a bad field)
+    missing_product = client.post(
+        "/api/inventory/update",
+        json={"product_id": 999999, "change_type": "stock_in", "quantity": 1},
+    )
+    assert missing_product.status_code == 404
+    assert missing_product.get_json()["error"]["code"] == "not_found"
+
+    # create a product with zero stock, then try to stock_out more than available -> 409 conflict
+    with get_connection(database_url) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO products (product_code, product_name, unit)
+            VALUES (?, ?, ?)
+            RETURNING id
+            """,
+            ("SKU-CONFLICT-001", "Conflict Test Product", "pcs"),
+        )
+        product_id = cursor.fetchone()["id"]
+        conn.commit()
+
+    conflict = client.post(
+        "/api/inventory/update",
+        json={"product_id": product_id, "change_type": "stock_out", "quantity": 5},
+    )
+    assert conflict.status_code == 409
+    conflict_body = conflict.get_json()
+    assert conflict_body["error"]["code"] == "conflict"
+    assert conflict_body["error"]["field"] == "quantity"
+
+    # unknown /api/ route -> JSON 404, not the HTML error page
+    unknown_route = client.get("/api/does-not-exist")
+    assert unknown_route.status_code == 404
+    assert unknown_route.content_type.startswith("application/json")
+    assert unknown_route.get_json()["error"]["code"] == "not_found"
