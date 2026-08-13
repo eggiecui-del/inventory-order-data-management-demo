@@ -879,12 +879,7 @@ def create_app(test_config=None):
                     (after_quantity, timestamp, product_id),
                 )
             except psycopg.errors.CheckViolation:
-                # Backstop: the FOR UPDATE lock above should make this
-                # unreachable in normal use, but if some other code path
-                # ever skips the application-level check, the database
-                # still refuses a negative quantity. Report it the same
-                # way as the application-level conflict instead of a
-                # generic 500.
+                # DB-level backstop, same 409 as the check above.
                 conn.rollback()
                 return json_error(
                     "inventory update would result in a negative quantity",

@@ -1,4 +1,6 @@
+import csv
 import os
+import tempfile
 import threading
 
 import pandas as pd
@@ -8,7 +10,46 @@ from psycopg.rows import dict_row
 
 from app import create_app
 from database import clear_demo_data, get_connection, init_db
+from export_utils import EXPORT_HEADERS, export_inventory_csv
+from order_queries import query_low_stock_products
 from scripts.validate_sources import check_order_totals, validate_source
+
+
+def _create_test_app(database_url):
+    init_db(database_url)
+    clear_demo_data(database_url)
+    app = create_app(
+        {
+            "TESTING": True,
+            "DATABASE_URL": database_url,
+            "SECRET_KEY": "pytest-key",
+        }
+    )
+    return app, app.test_client()
+
+
+def _create_product(client, product_code, current_quantity=5, safety_stock=2):
+    return client.post(
+        "/products/new",
+        data={
+            "product_code": product_code,
+            "product_name": f"Pytest Product {product_code}",
+            "category": "Controllers",
+            "brand": "Generic",
+            "model": "PY-MODEL",
+            "unit": "pcs",
+            "cost_price": "5.50",
+            "sale_price": "10.00",
+            "supplier_name": "Sample Parts Store",
+            "supplier_city": "Toronto",
+            "usage_scene": "pytest sample",
+            "current_quantity": str(current_quantity),
+            "minimum_stock": "1",
+            "safety_stock": str(safety_stock),
+            "location": "Test shelf",
+        },
+        follow_redirects=True,
+    )
 
 
 def test_source_validation_reports_duplicate_and_bad_amounts():
@@ -198,13 +239,7 @@ def test_api_error_contract():
 
 @pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
 def test_concurrent_inventory_read_serializes_via_row_lock():
-    """Two transactions read the same inventory row with SELECT ... FOR UPDATE,
-    the same query app.py now uses before it writes. The second one must block
-    until the first commits, and must then see the first transaction's write -
-    never the stale value it would have seen without the lock. This is the
-    exact mechanism that prevents a lost update when two stock-out requests
-    for the same product arrive at close to the same time.
-    """
+    # second connection should block on FOR UPDATE until the first commits
     database_url = os.environ["TEST_DATABASE_URL"]
     init_db(database_url)
     clear_demo_data(database_url)
@@ -265,3 +300,148 @@ def test_concurrent_inventory_read_serializes_via_row_lock():
     t2.join(timeout=2)
 
     assert second_thread_result["current_quantity"] == 5
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_api_inventory_stock_in():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    app, client = _create_test_app(database_url)
+    _create_product(client, "SKU-STOCKIN-001", current_quantity=5)
+
+    with get_connection(database_url) as conn:
+        product = conn.execute(
+            "SELECT id FROM products WHERE product_code = ?", ("SKU-STOCKIN-001",)
+        ).fetchone()
+
+    response = client.post(
+        "/api/inventory/update",
+        json={"product_id": product["id"], "change_type": "stock_in", "quantity": 10, "reason": "restock"},
+    )
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["quantity_before"] == 5
+    assert body["quantity_after"] == 15
+    assert body["quantity_change"] == 10
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_api_inventory_adjustment_sets_target_quantity():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    app, client = _create_test_app(database_url)
+    _create_product(client, "SKU-ADJUST-001", current_quantity=5)
+
+    with get_connection(database_url) as conn:
+        product = conn.execute(
+            "SELECT id FROM products WHERE product_code = ?", ("SKU-ADJUST-001",)
+        ).fetchone()
+
+    # Adjustment treats "quantity" as the target count, not a delta to apply.
+    response = client.post(
+        "/api/inventory/update",
+        json={"product_id": product["id"], "change_type": "adjustment", "quantity": 8, "reason": "recount"},
+    )
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["quantity_before"] == 5
+    assert body["quantity_after"] == 8
+    assert body["quantity_change"] == 3
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_rejected_inventory_update_leaves_no_partial_write():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    app, client = _create_test_app(database_url)
+    _create_product(client, "SKU-ROLLBACK-001", current_quantity=3)
+
+    with get_connection(database_url) as conn:
+        product = conn.execute(
+            "SELECT id FROM products WHERE product_code = ?", ("SKU-ROLLBACK-001",)
+        ).fetchone()
+
+    response = client.post(
+        "/api/inventory/update",
+        json={"product_id": product["id"], "change_type": "stock_out", "quantity": 999},
+    )
+    assert response.status_code == 409
+
+    with get_connection(database_url) as conn:
+        inventory = conn.execute(
+            "SELECT current_quantity FROM inventory WHERE product_id = ?", (product["id"],)
+        ).fetchone()
+        log_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM inventory_logs WHERE product_id = ?", (product["id"],)
+        ).fetchone()
+
+    assert inventory["current_quantity"] == 3
+    assert log_count["n"] == 0
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_api_order_status_update():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    app, client = _create_test_app(database_url)
+
+    with get_connection(database_url) as conn:
+        conn.execute(
+            "INSERT INTO customers (customer_id, customer_name) VALUES (?, ?)",
+            ("CUST-TEST-001", "Test Customer"),
+        )
+        conn.execute(
+            """
+            INSERT INTO orders (order_id, customer_id, order_date, order_status, total_amount)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("ORD-TEST-001", "CUST-TEST-001", "2026-01-01", "pending", "100.00"),
+        )
+        conn.commit()
+
+    valid = client.patch("/api/orders/ORD-TEST-001/status", json={"order_status": "completed"})
+    assert valid.status_code == 200
+    assert valid.get_json()["order_status"] == "completed"
+
+    invalid = client.patch("/api/orders/ORD-TEST-001/status", json={"order_status": "not-a-real-status"})
+    assert invalid.status_code == 400
+    invalid_body = invalid.get_json()
+    assert invalid_body["error"]["code"] == "validation_error"
+    assert invalid_body["error"]["field"] == "order_status"
+
+    missing = client.patch("/api/orders/ORD-DOES-NOT-EXIST/status", json={"order_status": "completed"})
+    assert missing.status_code == 404
+    assert missing.get_json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_low_stock_helper_after_stock_out_crosses_threshold():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    app, client = _create_test_app(database_url)
+    _create_product(client, "SKU-LOWSTOCK-001", current_quantity=5, safety_stock=2)
+
+    with get_connection(database_url) as conn:
+        product = conn.execute(
+            "SELECT id FROM products WHERE product_code = ?", ("SKU-LOWSTOCK-001",)
+        ).fetchone()
+
+    # 5 -> 3 -> 1, crossing below safety_stock=2 on the second stock-out.
+    for _ in range(2):
+        client.post(
+            "/api/inventory/update",
+            json={"product_id": product["id"], "change_type": "stock_out", "quantity": 2},
+        )
+
+    low_stock_rows = query_low_stock_products(database_url)
+    assert any(row["product_code"] == "SKU-LOWSTOCK-001" for row in low_stock_rows)
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
+def test_inventory_export_headers():
+    database_url = os.environ["TEST_DATABASE_URL"]
+    app, client = _create_test_app(database_url)
+    _create_product(client, "SKU-EXPORT-001")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        csv_path = export_inventory_csv(database_url, output_dir=temp_dir)
+        with open(csv_path, encoding="utf-8-sig", newline="") as csv_file:
+            reader = csv.reader(csv_file)
+            headers = next(reader)
+
+    assert headers == EXPORT_HEADERS

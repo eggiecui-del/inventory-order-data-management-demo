@@ -27,7 +27,7 @@ Every `/api/*` endpoint returns errors in the same shape:
 | `conflict` | 409 | The request is well-formed, but applying it would put the data in an invalid state (for example, a stock-out larger than current stock). |
 | `internal_error` | 500 | An unexpected server error. |
 
-Before this change, errors were a flat `{"error": "message"}` string with inconsistent status codes, and hitting an unknown `/api/...` route or triggering a server error returned an HTML page instead of JSON. Both are fixed now: every `/api/*` path always gets a JSON response, even for 404/500.
+This applies to every `/api/*` path, including 404s for unknown routes and unexpected 500s - those return JSON too, not an HTML page.
 
 ## Pagination
 
@@ -135,7 +135,7 @@ Invalid example (missing required field):
 ```
 Status: `400`
 
-Invalid example (stock-out larger than current stock — this is a `409`, not a `400`, because the request itself is well-formed, it just conflicts with the current inventory state):
+Invalid example (stock-out larger than current stock, `409` not `400`):
 
 ```json
 {"product_id": 1, "change_type": "stock_out", "quantity": 99999}

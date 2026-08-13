@@ -40,15 +40,12 @@ Main fields:
 - `created_at`
 - `updated_at`
 
-`supplier_name` and `supplier_city` are plain text and are the fields the
-Flask product form reads and writes. `supplier_id` references the `suppliers`
-table and is populated during Excel import: `import_excel.py` upserts a row
-in `suppliers` and stores its id alongside the free-text columns. The Flask
-app itself never sets or reads `supplier_id` when creating or editing
-products through the web form, so it stays `NULL` for anything added or
-edited that way, while imported products keep it populated. A follow-up
-would be to move the product form onto `supplier_id` (picking an existing
-supplier row) and drop the free-text columns.
+`supplier_name` and `supplier_city` are plain text, and are the fields the
+Flask product form actually reads and writes. `supplier_id` references
+`suppliers` and only gets set during Excel import (`import_excel.py`
+upserts the supplier row and stores its id). Products added or edited
+through the web form keep `supplier_id` as `NULL`. TODO: move the product
+form onto `supplier_id` and drop the free-text columns.
 
 Rules:
 
@@ -195,54 +192,23 @@ Views included:
 These are simple SQL views for reporting practice. They are not a full data
 warehouse.
 
-## Concurrency and Data Integrity
+## Concurrency and Row Locking
 
-Inventory updates follow a read-check-write pattern: read the current
-quantity, compute the new quantity, reject if it would go negative, then
-write. Without extra care, two requests updating the *same* product at
-close to the same time can both read the same "before" quantity, both pass
-the negative-stock check independently, and the second write can silently
-overwrite the first (a lost update), even though the database's
-`CHECK (current_quantity >= 0)` constraint still guarantees no row ever
-stores a negative number.
+Inventory update reads the current quantity, computes the new quantity,
+then writes it back. Two requests for the same product close together could
+both read the same starting quantity and the second write would overwrite
+the first. `app.py` now reads the inventory row with `SELECT ... FOR UPDATE`
+so a second transaction waits for the first to commit before it reads.
+`CHECK (current_quantity >= 0)` is still there as a backstop.
 
-The fix is `SELECT ... FOR UPDATE` when reading the inventory row inside the
-update transaction. This makes a second concurrent request wait until the
-first request's transaction commits or rolls back before it can read the
-row, so it always computes the new quantity from the true current value
-instead of a stale one. This is why the app relies on both application
-checks and database constraints, and not just one or the other:
+Test: `test_app_pytest.py::test_concurrent_inventory_read_serializes_via_row_lock`.
 
-- The `FOR UPDATE` lock plus the check inside the transaction prevents the
-  lost-update race in the first place.
-- The `CHECK (current_quantity >= 0)` constraint is the backstop: if any
-  code path ever skips the application check, the database still refuses to
-  store an invalid row.
+## Query Performance (EXPLAIN ANALYZE, 2,000 seeded rows)
 
-A concurrency test covering this is in `test_app_pytest.py` -
-`test_concurrent_stock_out_serializes_via_row_lock`.
-
-## Query Performance Notes (EXPLAIN ANALYZE)
-
-Checked against a seeded table of 2,000 products / inventory rows:
-
-- Exact match (`WHERE product_code = 'SKU-500'`) uses `idx_products_code`:
-  `Index Scan`, ~0.02ms.
-- Fuzzy search (`WHERE product_name ILIKE '%Product 1%'`) does **not** use
-  `idx_products_name`: a plain B-tree index can only accelerate lookups that
-  start with a known prefix, not a pattern with a leading wildcard, so
-  Postgres falls back to `Seq Scan`. At the current data size this is still
-  well under a millisecond, so it is left as-is; if product search needed to
-  scale further, the real fix is a trigram index (`pg_trgm` extension +
-  `GIN` index), not a plain B-tree.
-- The low-stock query (`WHERE current_quantity < safety_stock`) also does
-  **not** use `idx_inventory_status`, and structurally never will: that
-  index is built on `(current_quantity, safety_stock)` as two independent
-  columns, but a B-tree index can only accelerate comparisons against a
-  constant, not a comparison between two columns of the same row. The index
-  currently does nothing useful for this query. At the current row count
-  the sequential scan is still fast (well under a millisecond), so this is
-  noted as a known limitation rather than "fixed" - a real fix would need a
-  generated/computed column (e.g. a trigger-maintained `is_low_stock`
-  boolean) with its own index, which is more machinery than this project's
-  scale currently justifies.
+- `product_code = 'SKU-500'` uses `idx_products_code` (Index Scan, ~0.02ms).
+- `product_name ILIKE '%Product 1%'` does not use `idx_products_name` - a
+  plain B-tree can't help a leading-wildcard search, falls back to Seq Scan.
+  Fine at this size. Real fix would be `pg_trgm` + a GIN index.
+- `current_quantity < safety_stock` doesn't use `idx_inventory_status`
+  either - that index compares columns to constants, not to each other, so
+  it can't help this query. Basically dead right now.

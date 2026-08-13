@@ -5,27 +5,16 @@ The project has small test scripts for the local Flask and PostgreSQL demo.
 Run:
 
 ```powershell
-py basic_tests.py
-```
-
-Pytest smoke tests can also be run with:
-
-```powershell
 py -m pytest
 ```
 
-## Covered by `basic_tests.py`
+`basic_tests.py` can still be run directly with `py basic_tests.py`, but see
+the note below - it overlaps with `test_app_pytest.py` now.
 
-- Product creation through the Flask form
-- Basic API health check
-- Product list API filter by product code
-- Inventory stock-out API update
-- Low-stock SQL helper after a stock-out update
-- CSV export header check
-- Small pandas validation check for duplicate products and invalid numbers
-
-Database/API tests use `TEST_DATABASE_URL`. If it is not set, those smoke tests
-are skipped.
+Database/API tests use `TEST_DATABASE_URL`. If it is not set, those tests are
+skipped, not silently counted as passing - `pytest -v` shows each one as
+`SKIPPED (TEST_DATABASE_URL is not set)`. Only the pure pandas validation
+tests run without a database.
 
 The database can be checked manually with:
 
@@ -33,12 +22,38 @@ The database can be checked manually with:
 py scripts/check_database.py
 ```
 
-## Covered by `test_app_pytest.py`
+## Covered by `test_app_pytest.py` (11 tests)
 
-- Product API list check
-- Inventory stock-out API check
-- pandas source validation for duplicates, invalid numbers, and negative amounts
-- Order total vs. sum of order item subtotals cross-check
+Pandas source validation, no database needed:
+
+- Duplicate product code, negative price, invalid number
+- Order total vs. sum of order-item subtotals mismatch
+
+Flask + PostgreSQL, needs `TEST_DATABASE_URL`:
+
+- Product creation through the form, then found via `/api/products`
+- Inventory `stock_out` through `/api/inventory/update`
+- Inventory `stock_in` (quantity increases, before/after/change all checked)
+- Inventory `adjustment` (quantity is treated as the target, not a delta)
+- Unified API error shape: missing required field, resource not found,
+  stock-out conflict (409), unknown `/api/...` route returns JSON not HTML
+- A rejected inventory update (409) leaves the row and the log table
+  completely unchanged - proves the failure did not partially write anything
+- Concurrent inventory reads: two direct database connections with
+  controlled timing prove `SELECT ... FOR UPDATE` makes the second
+  transaction wait for the first to commit, instead of both working from a
+  stale quantity
+- Order status update through `/api/orders/<id>/status`: a valid
+  transition, an invalid status value, and a missing order id
+- Low-stock helper (`query_low_stock_products`) after two stock-outs cross
+  the safety-stock threshold
+- CSV export header check
+
+## `basic_tests.py` vs `test_app_pytest.py`
+
+These two now test mostly the same things (product validation, stock_out,
+CSV export, low-stock helper). TODO: delete `basic_tests.py` and just use
+pytest.
 
 ## ETL Validation Script
 
@@ -71,9 +86,11 @@ The generated sample data contains about:
 ## Not Covered Yet
 
 - Browser compatibility testing
-- Concurrent inventory updates
-- Full order entry workflow
+- Full order entry workflow (orders are only created through generated
+  sample data and direct SQL in tests, not a web form)
 - Login and permissions
 - PostgreSQL installation edge cases
 - Docker deployment
 - Load or performance testing
+- `CheckViolation` handling in `app.py` isn't hit by any test - the
+  app-level check blocks a bad stock_out before the DB constraint would.
