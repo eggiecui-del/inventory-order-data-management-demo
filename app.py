@@ -1,6 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
+import logging
 import os
+import time
+import uuid
 
 import psycopg
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
@@ -11,6 +14,9 @@ from export_utils import export_inventory_csv
 
 ORDER_STATUSES = ["pending", "processing", "shipped", "completed", "cancelled"]
 INVENTORY_CHANGE_TYPES = {"stock_in", "stock_out", "adjustment"}
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("inventory_app")
 
 
 def now_text():
@@ -113,6 +119,25 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     init_db(app.config["DATABASE_URL"])
+
+    @app.before_request
+    def start_request_log():
+        request.request_id = uuid.uuid4().hex[:12]
+        request.start_time = time.time()
+
+    @app.after_request
+    def finish_request_log(response):
+        duration_ms = (time.time() - request.start_time) * 1000
+        logger.info(
+            "request_id=%s method=%s path=%s status=%s duration_ms=%.1f",
+            request.request_id,
+            request.method,
+            request.path,
+            response.status_code,
+            duration_ms,
+        )
+        response.headers["X-Request-ID"] = request.request_id
+        return response
 
     def db_path():
         return app.config["DATABASE_URL"]
@@ -1063,5 +1088,6 @@ def create_app(test_config=None):
 
 
 if __name__ == "__main__":
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
-    create_app().run(host="127.0.0.1", port=port, debug=False)
+    create_app().run(host=host, port=port, debug=False)

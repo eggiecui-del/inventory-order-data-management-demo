@@ -1,0 +1,15 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+*.xlsx
+*.xls
+*.csv
+exports/
+reports/*
+!reports/.gitkeep
+logs/
+*.log

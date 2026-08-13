@@ -1,5 +1,7 @@
 # Inventory and Order Data Management System
 
+![Tests](https://github.com/eggiecui-del/inventory-order-data-management-demo/actions/workflows/tests.yml/badge.svg)
+
 Personal portfolio project inspired by a small-business data workflow.
 
 The idea is simple: product, inventory, customer, and order records are often
@@ -19,8 +21,11 @@ real order data, or private files.
 - Basic customer and order lookup pages
 - PostgreSQL tables for products, suppliers, customers, orders, order items, inventory, users, and audit logs
 - pandas CSV/Excel validation for source data checks
-- Basic local REST API endpoints
-- Simple unittest and pytest smoke tests
+- Basic local REST API endpoints with a consistent error format (see `docs/api.md`)
+- Row-level locking on inventory updates to prevent lost updates under concurrent requests
+- pytest suite including a real concurrency test, plus unittest smoke tests
+- Structured per-request logging with a request id
+- Docker Compose for local app + PostgreSQL, and GitHub Actions CI
 - ERD, data dictionary, API notes, ETL notes, and schema documentation
 
 This is a local portfolio demo, not a production deployment.
@@ -38,6 +43,8 @@ This is a local portfolio demo, not a production deployment.
 - SQL
 - unittest
 - pytest
+- Docker / Docker Compose
+- GitHub Actions
 
 ## Project Files
 
@@ -63,7 +70,32 @@ scripts/create_databases.py  Creates local app/test PostgreSQL databases
 scripts/seed_demo_data.py    Generates and loads sample demo data
 scripts/check_database.py    Checks connection and table row counts
 docs/                        ERD, data dictionary, API, ETL, tests, and future notes
+Dockerfile                   Builds the Flask app image
+docker-compose.yml           App + PostgreSQL, for local Docker use
+.github/workflows/tests.yml  CI: runs pytest against a PostgreSQL service container
 ```
+
+## Run With Docker Compose
+
+```powershell
+docker compose up --build
+```
+
+This starts PostgreSQL and the app together. `app` waits for `db`'s health
+check to pass before it starts, so it won't try to connect before Postgres
+is actually ready. Once it's up:
+
+```text
+http://localhost:5000
+```
+
+The compose file uses default local credentials (`postgres` / `postgres`)
+inside its own network - that's fine for a throwaway local container, not a
+real secret. The database is reachable from the host at `localhost:5433`
+(mapped to 5433 instead of the usual 5432, in case something else on your
+machine is already using 5432). To load sample data into the Dockerized
+database, run the seed script from your host machine against that port the
+same way as the non-Docker setup below.
 
 ## Setup
 
@@ -219,7 +251,18 @@ py -m pytest
 ```
 
 If `TEST_DATABASE_URL` is not set, the database/API smoke tests are skipped and
-the source validation tests still run.
+the source validation tests still run. `basic_tests.py` and `test_app_pytest.py`
+now cover mostly the same things - see `docs/test_report.md`.
+
+GitHub Actions runs `pytest` against a PostgreSQL service container on every
+push and pull request - see `.github/workflows/tests.yml`.
+
+## Logging
+
+The app logs one line per request (request id, method, path, status code,
+response time) to stdout, and returns the same request id in an
+`X-Request-ID` response header. No passwords or connection strings are
+logged.
 
 ## Generated Demo Data
 
