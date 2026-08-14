@@ -73,14 +73,14 @@ erDiagram
     }
 
     users {
-        int user_id PK
+        int id PK
         string username UK
         string role_name
         bool is_active
     }
 
     audit_logs {
-        int audit_id PK
+        int id PK
         int user_id FK
         string action_name
         string table_name

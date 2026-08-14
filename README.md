@@ -30,6 +30,43 @@ real order data, or private files.
 
 This is a local portfolio demo, not a production deployment.
 
+## Business Problem
+
+Small-business product, inventory, customer, and order data often lives in
+spreadsheets. That makes a few things hard: catching duplicate product codes,
+knowing which products are low on stock, tracing why a quantity changed, and
+answering basic reporting questions without manually combining files.
+
+This project rebuilds that workflow as a normalized PostgreSQL schema with
+validation before load, a small web/API layer for the day-to-day operations
+(search, stock updates, lookups), and SQL views for the reporting questions.
+It uses generated sample data, not a real business's records.
+
+## Architecture
+
+```text
+generated sample data (Excel/CSV)
+        |
+        v
+pandas validation (scripts/validate_sources.py)
+        |
+        v
+PostgreSQL (sql/postgres_schema.sql)
+        |
+        +--> Flask pages (templates/)
+        +--> REST API (app.py)
+        +--> SQL reporting views (sql/reporting_views.sql)
+        +--> CSV export (export_utils.py)
+```
+
+Inventory updates (`/inventory/update` and `POST /api/inventory/update`)
+read the current quantity with `SELECT ... FOR UPDATE`, compute the new
+quantity, reject anything that would go negative, then write the new
+quantity and an `inventory_logs` row in the same transaction. The row lock
+is what keeps two near-simultaneous updates to the same product from
+racing on a stale quantity - see `docs/database_schema.md` for the details
+and the concurrency test that checks it.
+
 ## Stack
 
 - Python
@@ -244,7 +281,10 @@ Run the basic unittest file:
 py basic_tests.py
 ```
 
-Run pytest:
+Run pytest (11 tests - product API, stock in/out/adjustment, order status
+update, the unified error shape, a rejected-update-leaves-no-trace check,
+the row-lock concurrency test, low-stock helper, CSV export, and source
+validation):
 
 ```powershell
 py -m pytest
@@ -287,3 +327,18 @@ These are intentionally not included:
 - Cloud deployment
 - Full BI dashboard
 - Large QA or performance testing
+
+## Known Limitations
+
+Things that were attempted but aren't fully solved yet:
+
+- `basic_tests.py` and `test_app_pytest.py` cover mostly the same ground now
+  (see `docs/test_report.md`) - `basic_tests.py` should probably just be
+  removed.
+- The database-level `CheckViolation` backstop in `app.py` isn't hit by any
+  test, since the application-level check already blocks a bad stock-out
+  before the database constraint would fire.
+- Row locking only covers inventory updates. Order status updates and other
+  writes haven't been reviewed for the same kind of race condition.
+- No authentication, no rate limiting, no OpenAPI/Swagger file (`docs/api.md`
+  is a hand-written reference, not a machine-readable spec).
