@@ -229,6 +229,15 @@ http://127.0.0.1:5000
 - `/orders`
 - `/export`
 
+## Screenshots
+
+![Product search](screenshots/products_page.png)
+![Inventory update](screenshots/inventory_update_page.png)
+
+The API error format, from a stock-out that exceeds current inventory:
+
+![API error format](screenshots/api_error_example.png)
+
 ## Basic API
 
 Some simple API endpoints are included for local testing:
